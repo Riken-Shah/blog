@@ -27,6 +27,22 @@
         {% endif %}
             </div>
         </div>
+        {% if header.is_loggedin %}
+        <div class="notification-wrapper" id="notification-wrapper">
+            <a class="hd_opt btn btn-bordered" href="#" id="notification-bell">
+                <img src="/static/icons/notification_dark.png" alt="Bell Icon"/>
+                <span class="alert_number" id="total_new_alerts">0</span>
+            </a>
+            <div class="notification">
+                <div class="alerts-wrapper" id="new-alerts">
+                    <span class="type">New Alerts</span>
+                </div>
+                <div class="alerts-wrapper" id="old-alerts">
+                    <span class="type">Old Alerts</span>
+                    </div>
+            </div>
+        </div>
+        {% endif %}
         <div id="hd_toggleBox">
             <div id="hd_themeToggle" class="btn btn-bordered">☀</div>
         </div>
@@ -47,6 +63,7 @@
     }
     if (document.documentElement.getAttribute("data-theme") == 'dark') {
         $("#hd_themeToggle").html("🌜");
+        $('#notification-bell img').attr('src', '/static/icons/notification.png');
     }
     $("#hd_themeToggle").on('click', () => {
         if (document.documentElement.getAttribute("data-theme") == 'dark') {
@@ -55,12 +72,14 @@
             else
                 window.changeTheme('light');
             $("#hd_themeToggle").html("☀");
+            $('#notification-bell img').attr('src', '/static/icons/notification_dark.png');
         } else {
             if (systemTheme() == 'dark')
                 window.changeTheme('system');
             else
                 window.changeTheme('dark');
             $("#hd_themeToggle").html("🌜");
+            $('#notification-bell img').attr('src', '/static/icons/notification.png');
         }
     })
     
@@ -79,5 +98,93 @@
             $('body').css('overflow', 'hidden');
         }
     });
+
+    // Notification Bell Click Event
+    $('#notification-bell').on('click', () => {
+        const $mainWrapper = $('#notification-bell');
+        const $notificationWrapper = $('.notification-wrapper');
+        if ($notificationWrapper.hasClass('active')) {
+            hideNotifications();
+        } else {
+            $notificationWrapper.addClass('active');
+        }
+    });
+
+    // Hide Notification Function
+    const hideNotifications = () => {
+        const $notificationWrapper = $('.notification-wrapper');
+        $notificationWrapper.removeClass('active');
+        let alert_ids = [];
+        $('.notification-wrapper .alert').each((i, alert) => alert_ids = [...alert_ids, ...alert.id.split(',')]);
+        setAlertsSeen(alert_ids);
+        fetchNewAlerts();
+    };
+
+    // Closing the notificaion modal if user click outside of it
+    $("body").click((e) => {
+        if ($('.notification-wrapper').hasClass('active')) {
+            let p = e.target;
+            while (p) {
+                if (p.id) {
+                    if (p.id == 'notification-wrapper') {
+                        return;
+                    }
+                }
+                p = p.parentElement;
+            }
+            hideNotifications();
+        }
+    });
+
+    // Fetching New Alerts
+    const fetchNewAlerts = () => {
+        new Api().post('alerts/new', {}, (code, res) => {
+                if (code === 201) {
+                    populate_alerts(res);
+                } else if (code === 400) {
+                    populate_alerts({});
+                    alert(res.msg);
+                } else if (code === 401) {
+                    window.location.href = "/login";
+                }
+            }
+        )};
+
+    // Mark the alerts as seen
+    const setAlertsSeen = (alertsId) => {
+        new Api().post('alerts/seen', {alerts_id: alertsId.toString()}, (code, res) => {
+                if (code === 400) {
+                    alert(res.msg);
+                } else if (code === 401) {
+                    window.location.href = "/login";
+                }
+            }
+        )};
+
+    // Populate the Alert Div
+    const populate_alerts = (res) => {
+        $('#new-alerts div').remove();
+        $('#old-alerts div').remove();
+
+        if (res.new_alerts && res.new_alerts.length) {
+            $('#total_new_alerts').show();
+            const totalNewAlerts = res.new_alerts.length;
+            $('#total_new_alerts')[0].innerHTML = totalNewAlerts < 10 ? totalNewAlerts : '9+';
+            res.new_alerts.forEach((alert) => $('#new-alerts').append(`<div class="alert" id=${alert.id}><div>${alert.alert}</div><span class="timespan">${humanized_time_span(alert.timestamp)}</span></div>`));
+        } else {
+            $('#total_new_alerts').hide();
+            $('#new-alerts').append('<div class="alert">Sorry, No new alerts found.</div>');
+        }
+
+        if (res.old_alerts && res.old_alerts.length) {
+            res.old_alerts.forEach((alert) => $('#old-alerts').append(`<div class="alert" id=${alert.id}><div>${alert.alert}</div><span class="timespan">${humanized_time_span(alert.timestamp)}</span></div>`));
+        } else {
+            $('#old-alerts').append('<div class="alert">Sorry, No old alerts found.</div>');
+        }
+
+    };
+    {% if header.is_loggedin %}
+    fetchNewAlerts();
+    {% endif %}
 
 </script>
