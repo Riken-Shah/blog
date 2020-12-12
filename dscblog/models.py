@@ -859,3 +859,31 @@ class Featured(models.Model):
 
     def __str__(self):
         return str(self.blog.id)+': '+self.blog.title
+
+
+class Alert(models.Model):
+    FOLLOW = 'FL'
+    COMMENT = 'CM'
+    COMMENT_REPLY = 'CR'
+    REACTION = 'RC'
+    NEW_BLOG = 'NB'
+    TYPES = [
+        (FOLLOW, 'Follower'),
+        (COMMENT, 'Comment'),
+        (COMMENT_REPLY, 'Comment Reply'),
+        (REACTION, 'Reaction'),
+        (NEW_BLOG, 'New Blog')
+    ]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='blog_user')
+    ref_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='blog_ref_user')
+    seen = models.BooleanField(default=False)
+    type = models.CharField(
+        max_length=2,
+        choices=TYPES,
+        default=None,
+    )
+    blog = models.ForeignKey(Blog, on_delete=models.CASCADE, default=None, blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Alert from {self.ref_user} for {self.user} about {self.type}'
