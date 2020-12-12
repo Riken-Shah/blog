@@ -885,5 +885,114 @@ class Alert(models.Model):
     blog = models.ForeignKey(Blog, on_delete=models.CASCADE, default=None, blank=True, null=True)
     timestamp = models.DateTimeField(auto_now_add=True)
 
+    @classmethod
+    def create_alert(cls, ref_user, type, blog=None, user=None):
+        already_exists = False
+        if blog:
+            user = Blog.objects.get(pk=blog.pk).author
+
+        if type == cls.FOLLOW or type == cls.REACTION:
+            already_exists = cls.objects.filter(ref_user=ref_user, user=user, type=type, blog=blog).exists()
+
+        if not already_exists and user.pk != ref_user.pk:
+            cls.check_for_max_limit(user)
+            obj = cls(user=user, ref_user=ref_user, type=type, blog=blog)
+            obj.save()
+
+    # This function is used to generate and delete the new blog alert for followed user
+    @classmethod
+    def alerts_for_new_blog(cls, blog, delete=False):
+        ref_user = Blog.objects.get(pk=blog.pk).author
+        for follower in ref_user.get_followers():
+            if not delete:
+                cls.check_for_max_limit(follower.user)
+                obj = cls(user=follower.user, ref_user=ref_user, type=cls.NEW_BLOG, blog=blog)
+                obj.save()
+            else:
+                obj = cls.objects.filter(user=follower.user, ref_user=ref_user, type=cls.NEW_BLOG, blog=blog)
+                if obj.count() > 0:
+                    obj.delete()
+
+    # If alert for a particular user is greater than 20 then it will delete the oldest alert
+    # to maintain the max length of 20
+    @classmethod
+    def check_for_max_limit(cls, user):
+        user_alert = cls.objects.filter(user=user)
+        if user_alert.count() > 20:
+            user_alert.first().delete()
+
+    @classmethod
+    def delete_user_unfollows(cls, ref_user, user):
+        obj = cls.objects.filter(ref_user=ref_user, user=user, type=cls.FOLLOW)
+        if obj.count() > 0:
+            obj[0].delete()
+
+    @classmethod
+    def get_new_alerts(cls, user=None):
+        return cls.group_alerts(cls.objects.filter(user=user, seen=False))
+
+    @classmethod
+    def get_old_alerts(cls, user=None):
+        return cls.group_alerts(cls.objects.filter(user=user, seen=True))
+
+    @classmethod
+    def mark_seen(cls, pk):
+        return cls.objects.filter(pk=pk).update(seen=True)
+
+    @classmethod
+    def mark_group_seen(cls, alerts):
+        for pk in alerts:
+            if pk:
+                cls.mark_seen(str(pk).strip())
+        return True
+
+    @classmethod
+    def group_alerts(cls, alerts):
+        grouped_alerts = []
+        blogs = {}
+        info = {}
+        for alert in alerts:
+            if alert.type == cls.FOLLOW:
+                grouped_alerts.append({'alert': f'<a href="/@{alert.ref_user.username}">{alert.ref_user}</a> started '
+                                                f'following you.', 'timestamp': alert.timestamp, 'id': alert.pk})
+            elif alert.type == cls.NEW_BLOG:
+                grouped_alerts.append(
+                    {'alert': f'<a href="/@{alert.ref_user.username}">{alert.ref_user}</a> posted a new blog on <a href="{alert.blog.get_url()}">{alert.blog.title}</a>.', 'timestamp': alert.timestamp, 'id': alert.pk})
+            else:
+                key = alert.blog.pk
+                if key not in blogs:
+                    blogs[key] = {cls.REACTION: 0, cls.COMMENT: 0, cls.COMMENT_REPLY: 0}
+                blogs[key][alert.type] += 1
+                if key not in info:
+                    info[key] = {'name': alert.blog.title, 'timestamp': alert.timestamp, 'id': [alert.pk], 'url': alert.blog.get_url()}
+                else:
+                    info[key]['id'].append(alert.pk)
+
+        for key in blogs.keys():
+            msg = f'You have '
+            count = 0
+            is_added = False
+            blog = blogs[key]
+            for alert_type in blog.keys():
+                if blog[alert_type]:
+                    if count == len(blog) - 1 and is_added:
+                        msg += 'and '
+                    msg += f'{blog[alert_type]} {cls.map_alert_type(alert_type)}, '
+                    is_added = True
+                count += 1
+            msg = msg[:-2]
+            if is_added:
+                msg += f" on <a href={info[key]['url']}>{info[key]['name']}</a> blog"
+            grouped_alerts.append({'alert': msg, 'timestamp': info[key]['timestamp'], 'id': info[key]['id']})
+
+        return sorted(grouped_alerts, key=lambda x: x['timestamp'], reverse=True)
+
+    @classmethod
+    def map_alert_type(cls, type):
+        for alert_type in cls.TYPES:
+            if alert_type[0] == type:
+                return alert_type[1]
+        return type
+
     def __str__(self):
         return f'Alert from {self.ref_user} for {self.user} about {self.type}'
